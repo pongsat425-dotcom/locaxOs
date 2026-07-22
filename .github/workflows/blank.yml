@@ -5,11 +5,11 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
-  workflow_dispatch: # ปุ่มกดสั่งรันมือในหน้า Actions
+  workflow_dispatch:
 
 jobs:
   build-iso:
-    name: Compile Custom ISO with Archiso
+    name: Compile ISO with Archiso
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Build ISO inside Official Arch Linux Docker Container
+      - name: Build ISO using Arch Linux Docker Container
         run: |
           docker run --rm --privileged \
             -v ${{ github.workspace }}:/workspace \
@@ -33,53 +33,45 @@ jobs:
               pacman-key --populate archlinux
 
               echo "==> 2. Installing archiso & build dependencies..."
-              pacman -Syu --noconfirm --needed archiso squashfs-tools libisoburn git grub mtools dosfstools efibootmgr python3
+              pacman -Syu --noconfirm --needed archiso squashfs-tools libisoburn git grub mtools dosfstools efibootmgr
 
-              echo "==> 3. Checking & preparing profile directory..."
+              echo "==> 3. Checking profile directory..."
               if [ -d "archlive" ]; then
                 PROFILE_DIR="archlive"
               elif [ -d "archiso" ]; then
                 PROFILE_DIR="archiso"
               else
-                echo "Warning: Profile directory not found. Copying default releng profile..."
+                echo "Warning: Neither archlive nor archiso folder found. Copying default releng profile..."
                 cp -r /usr/share/archiso/configs/releng archlive
                 PROFILE_DIR="archlive"
               fi
 
-              # Auto-fix missing bootloader directories for mkarchiso validation
+              # Ensure required bootloader directories exist for mkarchiso
               if [ ! -d "$PROFILE_DIR/syslinux" ] && [ -d "/usr/share/archiso/configs/releng/syslinux" ]; then
-                echo "--> Copying missing syslinux configs..."
+                echo "--> Copying missing syslinux configs from releng..."
                 cp -r /usr/share/archiso/configs/releng/syslinux "$PROFILE_DIR/"
               fi
               if [ ! -d "$PROFILE_DIR/efiboot" ] && [ -d "/usr/share/archiso/configs/releng/efiboot" ]; then
-                echo "--> Copying missing efiboot configs..."
+                echo "--> Copying missing efiboot configs from releng..."
                 cp -r /usr/share/archiso/configs/releng/efiboot "$PROFILE_DIR/"
               fi
               if [ ! -d "$PROFILE_DIR/grub" ] && [ -d "/usr/share/archiso/configs/releng/grub" ]; then
-                echo "--> Copying missing grub configs..."
+                echo "--> Copying missing grub configs from releng..."
                 cp -r /usr/share/archiso/configs/releng/grub "$PROFILE_DIR/" 2>/dev/null || true
               fi
 
-              # Ensure syslinux is included in packages.x86_64
+              # Ensure syslinux is in packages.x86_64
               if [ -f "$PROFILE_DIR/packages.x86_64" ]; then
                 grep -q "^syslinux$" "$PROFILE_DIR/packages.x86_64" || echo "syslinux" >> "$PROFILE_DIR/packages.x86_64"
               fi
 
-              # Modernize profiledef.sh bootmodes to avoid legacy validation errors
+              # Modernize profiledef.sh bootmodes cleanly using sed
               if [ -f "$PROFILE_DIR/profiledef.sh" ]; then
                 echo "--> Modernizing bootmodes in profiledef.sh..."
-                python3 -c "
-import re
-path = \"$PROFILE_DIR/profiledef.sh\"
-with open(path, \"r\") as f:
-    text = f.read()
-new_text = re.sub(r\"bootmodes=\([^)]*\)\", \"bootmodes=(\x27bios.syslinux\x27 \x27uefi.systemd-boot\x27)\", text, flags=re.DOTALL)
-with open(path, \"w\") as f:
-    f.write(new_text)
-"
+                sed -i -z "s/bootmodes=(\([^)]*\))/bootmodes=(\"bios.syslinux\" \"uefi.systemd-boot\")/g" "$PROFILE_DIR/profiledef.sh"
               fi
 
-              echo "==> 4. Building Bootable ISO with mkarchiso..."
+              echo "==> 4. Building Bootable ISO with mkarchiso using profile $PROFILE_DIR..."
               mkdir -p out
               mkarchiso -v -w /tmp/archiso-build -o ./out "$PROFILE_DIR"
             '
@@ -87,6 +79,6 @@ with open(path, \"w\") as f:
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ArchLinux-Custom-ISO
+          name: locaxlinux-1.0.0-ISO
           path: out/*.iso
           retention-days: 7
